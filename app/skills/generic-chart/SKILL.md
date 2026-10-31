@@ -131,3 +131,9 @@ tooltip 的纵向锚点必须来自绘图区首根网格线，而不是标题、
 不允许 Mark 卡片遮挡折线时，pointMarkers 使用 `labelPlacement: "outside-top"`。标签在绘图区上方独立区域排列，连接精确数据点，窄屏全部保留并换行；不改变绘图区曲线、坐标、网格或基本样式。
 
 当用户允许标记卡片适度遮挡曲线时，pointMarkers可设置 `allowCurveOverlap: true`；保留正常卡片字号、上下内边距和行距，仍避免覆盖其他卡片与标记锚点。默认false，维持原避让行为。
+
+## Data-driven numeric geometry
+
+Standard quantitative charts use the concrete deterministic chart scripts; the Agent chooses the chart type, fields and style. Never manually author SVG point coordinates from numbers. Line/group-line support `xScale: time|linear|category`, `visualStyle.line.curve: straight|smooth|step-after|step-before`, and `missingValuePolicy: gap` for source-faithful missing observations. For irregular dates use sorted ISO dates/epoch milliseconds and xScale=time, preserving horizontal time spacing. A step-after line holds each value until the next observation; it does not imply missing periods were independently observed.
+
+In the Mentora host, `skill_runner.py execute` also accepts a payload with `dataSource` containing a local data path and field mappings; read its returned host contract for this file-handoff extension. The host validates the rendered data against that source and returns a chart validation manifest. Independent CLI use still accepts ordinary data/rows payloads. StreamViz may arrange verified chart artifacts; it must not redraw their data paths.

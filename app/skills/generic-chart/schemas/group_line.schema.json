@@ -83,7 +83,9 @@
         "width": "number",
         "dasharray": "string"
       }
-    }
+    },
+    "xScale": "category (default) | time (ISO dates / epoch ms) | linear (numbers)",
+    "missingValuePolicy": "legacy (default) | gap (preserve null observations)"
   },
   "modelInstructions": [
     "visualStyle.chart.fitContent=true sizes an embedded chart frame from actual root, SVG text/legend and tooltip bounds without the default footer-height reserve; content must stay fully visible.",
@@ -103,11 +105,12 @@
     "For right-side y-axes, align the y-axis description to the same right edge as the y-axis tick labels, and allow the description text to extend leftward into the chart area instead of reserving extra right margin.",
     "For a framed two-line event annotation, use visualStyle.overlays[] with type='pointMarkers', x or index, labelBox=true, eventTime for the first line, and eventTitle for the second line. Preserve all base grouped-line defaults unless the user explicitly requests a visual override.",
     "For a verified trade/event date color boundary, use visualStyle.line.colorSplit with an exact x present in data. Bind event points with existing pointMarkers; never shift missing dates. Keep all base layout and line defaults.",
-    "When mark cards must not cover curves, set pointMarkers.labelPlacement=outside-top. The renderer reserves a separate label lane above the SVG plot, wraps all labels on narrow widths and connects exact price points; original plot coordinates and styling remain unchanged."
+    "When mark cards must not cover curves, set pointMarkers.labelPlacement=outside-top. The renderer reserves a separate label lane above the SVG plot, wraps all labels on narrow widths and connects exact price points; original plot coordinates and styling remain unchanged.",
+    "For irregular observation dates use xScale=time and sorted ISO dates or epoch milliseconds. Step-after holds the previous value until the next observation; step-before changes at the previous observation. missingValuePolicy=gap preserves missing observations and disconnects the line; never fill nulls silently."
   ],
   "styleContract": {
     "visualStyle": {
-      "line": "Existing line defaults plus optional colorSplit: {x:exact existing x,field:series field,beforeColor,afterColor,beforeLabel,afterLabel}. Changes stroke colors and legend only; same coordinates/path. Missing x leaves ordinary line unchanged."
+      "line": "Existing line defaults plus optional colorSplit: {x:exact existing x,field:series field,beforeColor,afterColor,beforeLabel,afterLabel}. Changes stroke colors and legend only; same coordinates/path. Missing x leaves ordinary line unchanged.; curve: straight|smooth|step-after|step-before"
     }
   }
 }

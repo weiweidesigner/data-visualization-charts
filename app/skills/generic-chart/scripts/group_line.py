@@ -62,6 +62,7 @@ def component_schema() -> dict[str, Any]:
         "name": "分组折线图",
         "visualChannelMappings": VISUAL_CHANNEL_MAPPINGS,
         "dataContract": DATA_CONTRACT,
+        "axisSemantics": {"xScale": "category|time|linear", "missingValuePolicy": "legacy|gap", "step-after": "Hold previous value until the next observation", "step-before": "Change at the previous observation"},
         "styleContract": {
             "visualStyle": {
                 "container": "background, color, padding, borderRadius, fontFamily, className",
@@ -72,7 +73,7 @@ def component_schema() -> dict[str, Any]:
                 "xAxis": "visible, color, fontSize, fontWeight, labelEvery, labelAngle, lineColor, lineWidth",
                 "yAxis": "position(left|right|both), suffix, digits, color, fontSize, fontWeight, lineColor, lineWidth",
                 "leftAxis/rightAxis": "min, max, label/description/title/name/axisLabel, suffix, digits, includeZero, visible",
-                "line": "showPoints, strokeWidth, curve(straight|smooth), dasharray, opacity, strokeLinecap, strokeLinejoin, colorSplit{x,field,beforeColor,afterColor,beforeLabel,afterLabel}; exact existing x only, original path unchanged",
+                "line": "showPoints, strokeWidth, curve(straight|smooth|step-after|step-before), dasharray, opacity, strokeLinecap, strokeLinejoin, colorSplit{x,field,beforeColor,afterColor,beforeLabel,afterLabel}; exact existing x only, original path unchanged",
                 "point": "visible, radius, outerRadius, fill, strokeWidth",
                 "seriesStyle": "field/series/name/label, color, strokeWidth, opacity, dasharray, showPoints, pointRadius, axis",
                 "legend": "visible, position(top|bottom), align, gap, color, fontSize, markerSize, markerShape; legend labels show series names only and strip units/value suffixes",
@@ -336,7 +337,7 @@ def _maybe_pivot_tidy_data(
     has_wide_fields = len(series_fields) == len(set(series_fields)) and all(
         any(number_like(row.get(field)) for row in rows) for field in series_fields if field
     )
-    if has_wide_fields and value_field not in series_fields:
+    if has_wide_fields and (value_field not in series_fields or (len(series_fields) > 1 and not (props.get("seriesField") or source.get("seriesField") or props.get("groupField") or source.get("groupField")))):
         return data, series
     group_field = _detect_tidy_group_field(
         rows,
@@ -697,7 +698,7 @@ def _normalize_config(payload: dict[str, Any], title: str | None = None, style: 
     is_percent_metric = _looks_like_percent_metric(source, props, series, left_axis, right_axis)
     if is_percent_metric:
         _apply_percent_units(series, left_axis, right_axis, visual_style)
-    if is_percent_metric or _looks_like_financial_time_series_metric(source, props, series, left_axis, right_axis):
+    if source.get("missingValuePolicy") != "gap" and (is_percent_metric or _looks_like_financial_time_series_metric(source, props, series, left_axis, right_axis)):
         data = _forward_fill_series_values(data, series, x_field)
     views = _normalize_views(props.get("views") or source.get("views"), left_axis, right_axis)
     default_view = str(props.get("defaultView") or source.get("defaultView") or next(iter(views), ""))
@@ -710,6 +711,8 @@ def _normalize_config(payload: dict[str, Any], title: str | None = None, style: 
         "title": str(title or source.get("title") or props.get("title") or "分组折线图"),
         "subtitle": str(source.get("subtitle") or props.get("subtitle") or ""),
         "xField": x_field,
+        "xScale": str(source.get("xScale") or props.get("xScale") or "category"),
+        "missingValuePolicy": str(source.get("missingValuePolicy") or "legacy"),
         "series": series,
         "leftAxis": left_axis,
         "rightAxis": right_axis,
@@ -1246,8 +1249,25 @@ if (activeView) {{
 function pathFromPoints(points, curve) {{
   const valid = points.filter(Boolean);
   if (!valid.length) return '';
-  if (visual.line.connectNulls !== false && curve !== 'smooth') {{
+  if (curve === 'step-after' || curve === 'step-before') {{
+    let d = '', previous = null;
+    for (const point of points) {{
+      if (!point) {{ if (config.missingValuePolicy === 'gap' || visual.line.connectNulls === false) previous = null; continue; }}
+      if (!previous) d += ` M ${{point[0]}} ${{point[1]}}`;
+      else if (curve === 'step-after') d += ` H ${{point[0]}} V ${{point[1]}}`;
+      else d += ` V ${{point[1]}} H ${{point[0]}}`;
+      previous = point;
+    }}
+    return d.trim();
+  }}
+  if (config.missingValuePolicy !== 'gap' && visual.line.connectNulls !== false && curve !== 'smooth') {{
     return valid.map((point, index) => `${{index === 0 ? 'M' : 'L'}} ${{point[0]}} ${{point[1]}}`).join(' ');
+  }}
+  if (curve === 'smooth' && config.missingValuePolicy === 'gap' && points.some(point => !point)) {{
+    const segments = []; let current = [];
+    for (const point of points) {{ if (point) current.push(point); else if (current.length) {{ segments.push(current); current = []; }} }}
+    if (current.length) segments.push(current);
+    return segments.map(segment => pathFromPoints(segment, curve)).join(' ');
   }}
   if (curve !== 'smooth' || valid.length < 3) {{
     return points.map((point, index) => point ? `${{index === 0 || !points[index - 1] ? 'M' : 'L'}} ${{point[0]}} ${{point[1]}}` : '').join(' ');
@@ -1601,7 +1621,12 @@ function render() {{
   const axisFor = item => item.axis === 'right' ? rightAxis : leftAxis;
   const pointCount = Math.max(rows.length, 1);
   const stepX = pointCount > 1 ? plotW / (pointCount - 1) : 0;
-  const centerX = index => pointCount > 1 ? margin.left + stepX * index : margin.left + plotW / 2;
+  const xValues = config.xScale === 'time' ? rows.map(row => typeof row[config.xField] === 'number' ? row[config.xField] : Date.parse(row[config.xField]))
+    : config.xScale === 'linear' ? rows.map(row => Number(row[config.xField])) : null;
+  if (xValues && (xValues.some(value => !Number.isFinite(value)) || xValues.some((value,index) => index && value < xValues[index-1]))) throw new Error('Continuous x values must be valid and sorted');
+  const firstX = xValues?.[0], lastX = xValues?.at(-1);
+  const centerX = index => xValues ? lastX > firstX ? margin.left + (xValues[index]-firstX)/(lastX-firstX)*plotW : margin.left + plotW/2
+    : pointCount > 1 ? margin.left + stepX * index : margin.left + plotW / 2;
   const hoverStartX = index => {{
     if (pointCount <= 1) return margin.left;
     if (index <= 0) return margin.left;
