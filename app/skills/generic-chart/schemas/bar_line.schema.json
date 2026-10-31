@@ -7,25 +7,112 @@
     "notes": "Raw rows may use any key names. The model must infer semantic field roles from the user request, field names, values, and units."
   },
   "semanticChannels": [
-    {"channel": "x", "payloadField": "xField", "required": true, "acceptedTypes": ["string", "date", "number"], "semantics": "category, period, date, quarter, month, year"},
-    {"channel": "bar.y", "payloadField": "columnSeries[].field", "required": true, "acceptedTypes": ["number"], "semantics": "volume, count, revenue, amount, value, absolute scale metric"},
-    {"channel": "line.y", "payloadField": "lineSeries[].field", "required": true, "acceptedTypes": ["number"], "semantics": "rate, ratio, margin, conversion, growth, return, percentage"},
-    {"channel": "bar.label", "payloadField": "columnSeries[].label", "required": false, "acceptedTypes": ["string"], "semantics": "reader-facing bar series name"},
-    {"channel": "line.label", "payloadField": "lineSeries[].label", "required": false, "acceptedTypes": ["string"], "semantics": "reader-facing line series name"},
-    {"channel": "axis.left", "payloadField": "leftAxis", "required": false, "acceptedTypes": ["object"], "semantics": "line axis scale, metric name, suffix, digits"},
-    {"channel": "axis.right", "payloadField": "rightAxis", "required": false, "acceptedTypes": ["object"], "semantics": "bar axis scale, metric name, suffix, digits"}
+    {
+      "channel": "x",
+      "payloadField": "xField",
+      "required": true,
+      "acceptedTypes": [
+        "string",
+        "date",
+        "number"
+      ],
+      "semantics": "category, period, date, quarter, month, year"
+    },
+    {
+      "channel": "bar.y",
+      "payloadField": "columnSeries[].field",
+      "required": true,
+      "acceptedTypes": [
+        "number"
+      ],
+      "semantics": "volume, count, revenue, amount, value, absolute scale metric"
+    },
+    {
+      "channel": "line.y",
+      "payloadField": "lineSeries[].field",
+      "required": true,
+      "acceptedTypes": [
+        "number"
+      ],
+      "semantics": "rate, ratio, margin, conversion, growth, return, percentage"
+    },
+    {
+      "channel": "bar.label",
+      "payloadField": "columnSeries[].label",
+      "required": false,
+      "acceptedTypes": [
+        "string"
+      ],
+      "semantics": "reader-facing bar series name"
+    },
+    {
+      "channel": "line.label",
+      "payloadField": "lineSeries[].label",
+      "required": false,
+      "acceptedTypes": [
+        "string"
+      ],
+      "semantics": "reader-facing line series name"
+    },
+    {
+      "channel": "axis.left",
+      "payloadField": "leftAxis",
+      "required": false,
+      "acceptedTypes": [
+        "object"
+      ],
+      "semantics": "line axis scale, metric name, suffix, digits"
+    },
+    {
+      "channel": "axis.right",
+      "payloadField": "rightAxis",
+      "required": false,
+      "acceptedTypes": [
+        "object"
+      ],
+      "semantics": "bar axis scale, metric name, suffix, digits"
+    }
   ],
   "payloadShape": {
     "type": "bar-line",
     "title": "string",
     "xField": "string",
     "data": "array<object>",
-    "columnSeries": [{"field": "string", "label": "string", "suffix": "string"}],
-    "lineSeries": [{"field": "string", "label": "string", "suffix": "string"}],
-    "leftAxis": {"label": "string", "description": "string", "title": "string", "name": "string", "axisLabel": "string", "suffix": "string", "digits": "number"},
-    "rightAxis": {"label": "string", "description": "string", "title": "string", "name": "string", "axisLabel": "string", "suffix": "string", "digits": "number"}
+    "columnSeries": [
+      {
+        "field": "string",
+        "label": "string",
+        "suffix": "string"
+      }
+    ],
+    "lineSeries": [
+      {
+        "field": "string",
+        "label": "string",
+        "suffix": "string"
+      }
+    ],
+    "leftAxis": {
+      "label": "string",
+      "description": "string",
+      "title": "string",
+      "name": "string",
+      "axisLabel": "string",
+      "suffix": "string",
+      "digits": "number"
+    },
+    "rightAxis": {
+      "label": "string",
+      "description": "string",
+      "title": "string",
+      "name": "string",
+      "axisLabel": "string",
+      "suffix": "string",
+      "digits": "number"
+    }
   },
   "modelInstructions": [
+    "In Mentora use the existing source JSON file via payload.dataSource.path/recordsPath/fields instead of copying rows or writing a conversion script for simple field/date mappings. Read hostExtensions.dataSource for the exact contract; run this concrete script through skill_runner.py execute.",
     "Keep numeric values numeric. Put units in suffix, label, displayValue, or axis configuration.",
     "Prefer bars for absolute magnitude metrics and lines for percentage/rate metrics.",
     "If the user supplies multiple candidate metrics, select the smallest set needed for the requested comparison.",
@@ -37,5 +124,30 @@
     "For right-side y-axes, align the y-axis description to the same right edge as the y-axis tick labels, and allow the description text to extend leftward into the chart area instead of reserving extra right margin.",
     "Right-axis tick labels should be measured and right-aligned close to the plot with a small plot-to-label gap, avoiding extra safety padding on the far right.",
     "Do not add viewport or screen safety margins inside the component; component padding and default left/right plot margins should be zero unless needed for axis tick labels or explicit user styling."
-  ]
+  ],
+  "hostExtensions": {
+    "executor": "Mentora app/skill_runner.py execute",
+    "dataSource": {
+      "purpose": "Pass a verified local JSON file directly; the host maps fields and checks rendered values without model transcription.",
+      "dataSource": {
+        "path": "outputs/data/source.json",
+        "recordsPath": [
+          "series"
+        ],
+        "fields": {
+          "date": "macro_observation_period",
+          "rate": "v"
+        },
+        "dateFormats": {
+          "date": "%Y%m%d"
+        },
+        "sortBy": "date"
+      },
+      "payload": "Keep normal renderer fields (xField, series/yField, axes, visualStyle). Omit data/rows when dataSource is used. No scaling or filling is performed.",
+      "pieMapping": "For pie.py map source fields to label/value; nonnegative finite values and positive total required. Missing values must be handled explicitly upstream, never silently zero-filled.",
+      "lineOptions": "xScale=time for irregular ISO dates/epoch ms; visualStyle.line.curve=step-after|step-before|straight|smooth; missingValuePolicy=gap preserves nulls.",
+      "receipt": "chartValidation reports source hash, rows, per-series valid/missing counts, min/max, first/last observations and axis coverage. Verified chart HTML can be passed to StreamViz chart_artifacts without copying data or drawing SVG coordinates."
+    },
+    "standalone": "Direct component CLI still receives ordinary data; host expands dataSource before execution."
+  }
 }

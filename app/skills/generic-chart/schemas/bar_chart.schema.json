@@ -2,22 +2,66 @@
   "chartType": "bar",
   "script": "bar_chart.py",
   "purpose": "Compare one numeric measure across categories or ordered periods.",
-  "rawDataContract": {"shape": "array<object>", "notes": "Rows can use arbitrary key names."},
+  "rawDataContract": {
+    "shape": "array<object>",
+    "notes": "Rows can use arbitrary key names."
+  },
   "semanticChannels": [
-    {"channel": "x", "payloadField": "xField", "required": true, "acceptedTypes": ["string", "date", "number"], "semantics": "category, period, group, bucket"},
-    {"channel": "bar.y", "payloadField": "yField or series[].field", "required": true, "acceptedTypes": ["number"], "semantics": "single numeric measure represented by bar height"},
-    {"channel": "bar.label", "payloadField": "series[].label or title", "required": false, "acceptedTypes": ["string"], "semantics": "reader-facing measure name"}
+    {
+      "channel": "x",
+      "payloadField": "xField",
+      "required": true,
+      "acceptedTypes": [
+        "string",
+        "date",
+        "number"
+      ],
+      "semantics": "category, period, group, bucket"
+    },
+    {
+      "channel": "bar.y",
+      "payloadField": "yField or series[].field",
+      "required": true,
+      "acceptedTypes": [
+        "number"
+      ],
+      "semantics": "single numeric measure represented by bar height"
+    },
+    {
+      "channel": "bar.label",
+      "payloadField": "series[].label or title",
+      "required": false,
+      "acceptedTypes": [
+        "string"
+      ],
+      "semantics": "reader-facing measure name"
+    }
   ],
   "payloadShape": {
     "title": "string",
     "financialMarket": "CN | HK | US (optional; controls financial up/down colors)",
     "xField": "string",
     "yField": "string",
-    "series": [{"field": "string", "label": "string"}],
-    "axis": {"label": "string", "description": "string", "title": "string", "name": "string", "axisLabel": "string", "suffix": "string", "digits": "number", "position": "right"},
+    "series": [
+      {
+        "field": "string",
+        "label": "string"
+      }
+    ],
+    "axis": {
+      "label": "string",
+      "description": "string",
+      "title": "string",
+      "name": "string",
+      "axisLabel": "string",
+      "suffix": "string",
+      "digits": "number",
+      "position": "right"
+    },
     "data": "array<object>"
   },
   "modelInstructions": [
+    "In Mentora use the existing source JSON file via payload.dataSource.path/recordsPath/fields instead of copying rows or writing a conversion script for simple field/date mappings. Read hostExtensions.dataSource for the exact contract; run this concrete script through skill_runner.py execute.",
     "Use for one primary numeric measure.",
     "For financial direction charts set financialMarket explicitly: CN and HK use red-up/green-down; US uses green-up/red-down. Bars, legends, and tooltips must use the same convention.",
     "Sort periods chronologically and categories by user intent or value when appropriate.",
@@ -31,5 +75,30 @@
     "Right-axis tick labels should be measured and right-aligned close to the plot with a small plot-to-label gap.",
     "X-axis labels should be displayed in full when measured label widths fit without overlap; only sample labels when full display would overlap, and sample by measured text width plus a small gap instead of fixed count rules.",
     "Do not add viewport or screen safety margins inside the component; component padding and default left/right plot margins should be zero unless needed for axis tick labels or explicit user styling."
-  ]
+  ],
+  "hostExtensions": {
+    "executor": "Mentora app/skill_runner.py execute",
+    "dataSource": {
+      "purpose": "Pass a verified local JSON file directly; the host maps fields and checks rendered values without model transcription.",
+      "dataSource": {
+        "path": "outputs/data/source.json",
+        "recordsPath": [
+          "series"
+        ],
+        "fields": {
+          "date": "macro_observation_period",
+          "rate": "v"
+        },
+        "dateFormats": {
+          "date": "%Y%m%d"
+        },
+        "sortBy": "date"
+      },
+      "payload": "Keep normal renderer fields (xField, series/yField, axes, visualStyle). Omit data/rows when dataSource is used. No scaling or filling is performed.",
+      "pieMapping": "For pie.py map source fields to label/value; nonnegative finite values and positive total required. Missing values must be handled explicitly upstream, never silently zero-filled.",
+      "lineOptions": "xScale=time for irregular ISO dates/epoch ms; visualStyle.line.curve=step-after|step-before|straight|smooth; missingValuePolicy=gap preserves nulls.",
+      "receipt": "chartValidation reports source hash, rows, per-series valid/missing counts, min/max, first/last observations and axis coverage. Verified chart HTML can be passed to StreamViz chart_artifacts without copying data or drawing SVG coordinates."
+    },
+    "standalone": "Direct component CLI still receives ordinary data; host expands dataSource before execution."
+  }
 }

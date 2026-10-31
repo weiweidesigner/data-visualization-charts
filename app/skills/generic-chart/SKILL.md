@@ -7,6 +7,14 @@ description: 通用图表渲染技能，适用于用户提供的 JSON、CSV-like
 
 Use this skill to render reusable chart HTML from structured data or an upstream chart payload.
 
+## Mentora 文件交接
+
+使用宿主 `app/skill_runner.py execute --script <具体脚本.py>`。标准折线用 line_chart.py，分组折线 group_line.py，柱状 bar_chart.py，分组柱 grouped_bar.py，柱折 bar_line.py，饼图 pie.py；根据数据自主选择。没有 generic_chart.py 统一脚本，也没有 `contract --skill`；契约入口是 `app/skill_runner.py contract --script <具体脚本.py>`。
+
+上游已有 JSON 文件时，普通字段重命名、日期解析和排序直接写入小型 payload 的 `dataSource`，不要转抄整组数据、也不必为简单字段映射另写 Python。`hostExtensions.dataSource` 在每个对应 schema 中提供宿主契约：path 是 outputs/ 下文件；recordsPath 是选择数组的键路径（如 ["series"]）；fields 将图表字段映射到源字段；dateFormats 可解析日期；sortBy 可显式排序。其他图表选型、数值字段、单位和样式仍由你决定；聚合等真正分析变换使用已有计算技能，不把模型手写数字当作源数据。
+
+例如折线 payload 可以使用 `{"xField":"date","yField":"rate","series":[{"field":"rate","label":"Rate","axis":"right"}],"xScale":"time","dataSource":{"path":"outputs/data/result.json","recordsPath":["series"],"fields":{"date":"macro_observation_period","rate":"v"},"dateFormats":{"date":"%Y%m%d"},"sortBy":"date"}}`。这只是字段映射示例，不选择业务数据或固定图表样式。单独使用组件 CLI 时仍提供展开后的 data/rows；宿主负责 dataSource 扩展和源值校验。
+
 ## CLI 生成顺序
 
 生成任何 CLI 调用前必须按这个顺序推理：

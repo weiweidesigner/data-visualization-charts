@@ -88,6 +88,7 @@
     "missingValuePolicy": "legacy (default) | gap (preserve null observations)"
   },
   "modelInstructions": [
+    "In Mentora use the existing source JSON file via payload.dataSource.path/recordsPath/fields instead of copying rows or writing a conversion script for simple field/date mappings. Read hostExtensions.dataSource for the exact contract; run this concrete script through skill_runner.py execute.",
     "visualStyle.chart.fitContent=true sizes an embedded chart frame from actual root, SVG text/legend and tooltip bounds without the default footer-height reserve; content must stay fully visible.",
     "pointMarkers.allowCurveOverlap defaults false. When true, prefer vertical gaps and minimize covered curve length; allow limited overlap only when needed, while protecting marked anchors, card spacing and plot bounds; keep normal card typography/padding.",
     "Use no more than 6-8 visible series unless the user explicitly asks.",
@@ -112,5 +113,30 @@
     "visualStyle": {
       "line": "Existing line defaults plus optional colorSplit: {x:exact existing x,field:series field,beforeColor,afterColor,beforeLabel,afterLabel}. Changes stroke colors and legend only; same coordinates/path. Missing x leaves ordinary line unchanged.; curve: straight|smooth|step-after|step-before"
     }
+  },
+  "hostExtensions": {
+    "executor": "Mentora app/skill_runner.py execute",
+    "dataSource": {
+      "purpose": "Pass a verified local JSON file directly; the host maps fields and checks rendered values without model transcription.",
+      "dataSource": {
+        "path": "outputs/data/source.json",
+        "recordsPath": [
+          "series"
+        ],
+        "fields": {
+          "date": "macro_observation_period",
+          "rate": "v"
+        },
+        "dateFormats": {
+          "date": "%Y%m%d"
+        },
+        "sortBy": "date"
+      },
+      "payload": "Keep normal renderer fields (xField, series/yField, axes, visualStyle). Omit data/rows when dataSource is used. No scaling or filling is performed.",
+      "pieMapping": "For pie.py map source fields to label/value; nonnegative finite values and positive total required. Missing values must be handled explicitly upstream, never silently zero-filled.",
+      "lineOptions": "xScale=time for irregular ISO dates/epoch ms; visualStyle.line.curve=step-after|step-before|straight|smooth; missingValuePolicy=gap preserves nulls.",
+      "receipt": "chartValidation reports source hash, rows, per-series valid/missing counts, min/max, first/last observations and axis coverage. Verified chart HTML can be passed to StreamViz chart_artifacts without copying data or drawing SVG coordinates."
+    },
+    "standalone": "Direct component CLI still receives ordinary data; host expands dataSource before execution."
   }
 }

@@ -50,6 +50,7 @@
     ]
   },
   "modelInstructions": [
+    "In Mentora use the existing source JSON file via payload.dataSource.path/recordsPath/fields instead of copying rows or writing a conversion script for simple field/date mappings. Read hostExtensions.dataSource for the exact contract; run this concrete script through skill_runner.py execute.",
     "Use when grouped comparison matters more than time trend.",
     "For financial direction charts set financialMarket explicitly: CN and HK use red-up/green-down; US uses green-up/red-down. Bars, legends, and tooltips must use the same convention.",
     "Keep grouped series count small enough for readable bars.",
@@ -64,5 +65,30 @@
     "Do not add viewport or screen safety margins inside the component; component padding and default left/right plot margins should be zero unless needed for axis tick labels or explicit user styling.",
     "Right-axis tick labels should be measured and right-aligned close to the plot with a small plot-to-label gap.",
     "Choose axis bounds from the actual finite data and the zero baseline, then place gridCount horizontal lines including the zero baseline (default five total lines); use one equal interval across the ticks with zero included; tiny opposite-sign values stay inside the domain without creating an extra grid line. A tiny value across zero must not create a large empty band. Keep measured first/last category labels completely inside the SVG while sampling crowded labels."
-  ]
+  ],
+  "hostExtensions": {
+    "executor": "Mentora app/skill_runner.py execute",
+    "dataSource": {
+      "purpose": "Pass a verified local JSON file directly; the host maps fields and checks rendered values without model transcription.",
+      "dataSource": {
+        "path": "outputs/data/source.json",
+        "recordsPath": [
+          "series"
+        ],
+        "fields": {
+          "date": "macro_observation_period",
+          "rate": "v"
+        },
+        "dateFormats": {
+          "date": "%Y%m%d"
+        },
+        "sortBy": "date"
+      },
+      "payload": "Keep normal renderer fields (xField, series/yField, axes, visualStyle). Omit data/rows when dataSource is used. No scaling or filling is performed.",
+      "pieMapping": "For pie.py map source fields to label/value; nonnegative finite values and positive total required. Missing values must be handled explicitly upstream, never silently zero-filled.",
+      "lineOptions": "xScale=time for irregular ISO dates/epoch ms; visualStyle.line.curve=step-after|step-before|straight|smooth; missingValuePolicy=gap preserves nulls.",
+      "receipt": "chartValidation reports source hash, rows, per-series valid/missing counts, min/max, first/last observations and axis coverage. Verified chart HTML can be passed to StreamViz chart_artifacts without copying data or drawing SVG coordinates."
+    },
+    "standalone": "Direct component CLI still receives ordinary data; host expands dataSource before execution."
+  }
 }
