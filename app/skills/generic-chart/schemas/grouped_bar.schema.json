@@ -47,6 +47,17 @@
         "field": "string",
         "label": "string"
       }
+    ],
+    "barPlaceholders": [
+      {
+        "series": "exact missing target field or unique label",
+        "x": "exact category (or index: integer)",
+        "referenceSeries": "exact other series in the same row, with finite value",
+        "label": "localized status, e.g. 尚未公布",
+        "style": {
+          "color": "optional hatch and outline color"
+        }
+      }
     ]
   },
   "modelInstructions": [
@@ -64,7 +75,8 @@
     "Tooltip should sit near the first gridline but not too high; use a compact vertical gap around 10px.",
     "Do not add viewport or screen safety margins inside the component; component padding and default left/right plot margins should be zero unless needed for axis tick labels or explicit user styling.",
     "Right-axis tick labels should be measured and right-aligned close to the plot with a small plot-to-label gap.",
-    "Choose axis bounds from the actual finite data and the zero baseline, then place gridCount horizontal lines including the zero baseline (default five total lines); use one equal interval across the ticks with zero included; tiny opposite-sign values stay inside the domain without creating an extra grid line. A tiny value across zero must not create a large empty band. Keep measured first/last category labels completely inside the SVG while sampling crowded labels."
+    "Choose axis bounds from the actual finite data and the zero baseline, then place gridCount horizontal lines including the zero baseline (default five total lines); use one equal interval across the ticks with zero included; tiny opposite-sign values stay inside the domain without creating an extra grid line. A tiny value across zero must not create a large empty band. Keep measured first/last category labels completely inside the SVG while sampling crowded labels.",
+    "For an explicitly requested missing/unreported bar placeholder, use barPlaceholders with exact series, x (or index), referenceSeries and localized label. The renderer draws a transparent diagonal hatch and outline from zero to the same-row reference value, preserving the missing target as null; tooltip and legend identify it as a placeholder. Never fill the actual field with its estimate or zero, never use placeholders for existing values, and never invent an unavailable reference. Negative references are supported. Missing bars without an explicit placeholder are omitted and shown as — in tooltip. This is a native grouped_bar.py feature; do not route to custom HTML/StreamViz for hatched placeholders."
   ],
   "hostExtensions": {
     "executor": "Mentora app/skill_runner.py execute",

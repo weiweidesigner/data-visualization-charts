@@ -43,7 +43,7 @@ def test_ashare_market_is_inferred_and_embedded(renderer_name, component_type):
     assert ':root[data-financial-market="CN"],:root[data-financial-market="HK"]{--sv-price-up:var(--sv-loss);--sv-price-down:var(--sv-gain)}' in document
     assert "getComputedStyle(probe).color" in document
     assert "color:chartColor(row.__markColors?.[series.field] || series.color)" in document
-    assert "fill:chartColor(row.__markColors?.[series.field] || series.color)" in document
+    assert ("let fill = chartColor(row.__markColors?.[series.field] || series.color)" if renderer_name == "grouped_bar" else "fill:chartColor(row.__markColors?.[series.field] || series.color)") in document
 
 
 @pytest.mark.parametrize("renderer_name,component_type", [("bar_chart", "bar"), ("grouped_bar", "grouped-bar")])

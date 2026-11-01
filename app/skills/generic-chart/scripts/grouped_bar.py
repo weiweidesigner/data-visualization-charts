@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import json
 
 import html
@@ -314,6 +315,57 @@ def _ensure_signed_direction_style(
     ]
 
 
+
+def _normalize_bar_placeholders(raw: Any, data: list[Any], series: list[dict[str, Any]], x_field: str) -> list[dict[str, Any]]:
+    """Resolve explicit missing-bar geometry without filling or changing source data."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("barPlaceholders must be an array")
+    result, seen = [], set()
+    def resolve(name: Any) -> str:
+        matches = [s["field"] for s in series if str(name).casefold() in {s["field"].casefold(), s["label"].casefold()}]
+        if len(matches) != 1:
+            raise ValueError(f"bar-placeholder series {name!r} must resolve uniquely")
+        return matches[0]
+    for mark in raw:
+        if not isinstance(mark, dict):
+            raise ValueError("bar-placeholder must be an object")
+        field, reference = resolve(mark.get("series")), resolve(mark.get("referenceSeries"))
+        if "x" in mark:
+            indexes = [i for i, row in enumerate(data) if str(row.get(x_field)) == str(mark["x"])]
+            if len(indexes) != 1:
+                raise ValueError("bar-placeholder x must resolve uniquely")
+            index = indexes[0]
+            if "index" in mark and mark["index"] != index:
+                raise ValueError("bar-placeholder x and index disagree")
+        else:
+            index = mark.get("index")
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(data):
+            raise ValueError("bar-placeholder index must identify an existing row")
+        row = data[index]
+        if row.get(field) not in (None, ""):
+            raise ValueError("bar-placeholder target must be missing; existing actual values cannot be replaced")
+        value = row.get(reference)
+        try:
+            valid = value not in (None, "") and not isinstance(value, bool) and math.isfinite(float(value))
+        except (ValueError, TypeError):
+            valid = False
+        if field == reference or not valid:
+            raise ValueError("bar-placeholder referenceSeries must have a finite value in the same row")
+        if (index, field) in seen:
+            raise ValueError("duplicate bar-placeholder target")
+        seen.add((index, field))
+        style = mark.get("style") or {}
+        if not isinstance(style, dict):
+            raise ValueError("bar-placeholder style must be an object")
+        result.append({"index": index, "series": field, "referenceSeries": reference,
+                       "label": str(mark.get("label") or "—"),
+                       "style": {"color": str(style.get("color") or "var(--chart-text-secondary)"),
+                                 "strokeWidth": 1.25, "spacing": 8}})
+    return result
+
+
 def normalize_xy_series(component: dict[str, Any], component_type: str, default_title: str, default_series_type: str, style_json: str | None = None) -> dict[str, Any]:
     props = component.get("props") if isinstance(component.get("props"), dict) else {}
     data = component.get("data") or props.get("data") or []
@@ -385,6 +437,7 @@ def normalize_xy_series(component: dict[str, Any], component_type: str, default_
         "legend": legend,
         "series": normalized_series,
         "data": data,
+        "barPlaceholders": _normalize_bar_placeholders(props.get("barPlaceholders", component.get("barPlaceholders")), data, normalized_series, x_field),
         "visualStyle": visual_style,
         "sourceNote": component.get("sourceNote") or props.get("sourceNote") or "",
     }
@@ -476,6 +529,11 @@ const node = (name, attrs = {{}}, text = '') => {{
   return el;
 }};
 const number = value => Number.isFinite(Number(value)) ? Number(value) : 0;
+const finiteValue = value => value !== null && value !== undefined && value !== '' && typeof value !== 'boolean' && Number.isFinite(Number(value));
+const escapeText = value => String(value).replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
+function barPlaceholder(index, field) {{
+  return (config.barPlaceholders || []).find(mark => mark.index === index && mark.series === field);
+}}
 function hasExplicitDigits(value) {{
   return value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value));
 }}
@@ -705,7 +763,7 @@ window.addEventListener('message', event => {{
   if (event.data.action === 'show') tooltip.classList.remove('active');
 }});
 function showTooltip(anchorX, rows, xLabel, gridTop) {{
-  const html = `<strong>${{xLabel}}</strong>` + rows.map(row => `<div class="tooltip-row"><span class="tooltip-label"><i class="tooltip-dot" style="background:${{row.color}}"></i>${{row.label}}</span><b>${{formatTooltipValue(row.value, row.series)}}</b></div>`).join('');
+  const html = `<strong>${{xLabel}}</strong>` + rows.map(row => `<div class="tooltip-row"><span class="tooltip-label"><i class="tooltip-dot" style="background:${{row.color}}"></i>${{row.label}}</span><b>${{row.placeholder ? escapeText(row.placeholder.label) : finiteValue(row.value) ? formatTooltipValue(row.value, row.series) : "—"}}</b></div>`).join('');
   tooltip.innerHTML = html;
   tooltip.classList.add('active');
   const stage = root.querySelector('.chart-stage');
@@ -846,7 +904,7 @@ function render() {{
   const showRightAxis = axisPosition !== 'left';
   const showLeftAxis = axisPosition === 'left' || axisPosition === 'both';
   const values = [];
-  config.data.forEach(row => config.series.forEach(series => values.push(number(row[series.field]))));
+  config.data.forEach(row => config.series.forEach(series => {{ if (finiteValue(row[series.field])) values.push(Number(row[series.field])); }}));
   const gridCount = Math.max(2, config.gridCount || 5);
   const yRange = range(values, gridCount);
   const tickLabels = yRange.ticks.map(value => formatAxisValue(value));
@@ -913,7 +971,7 @@ function render() {{
     const barW = Math.max(4, (groupW - barGap * (config.series.length - 1)) / config.series.length);
     config.data.forEach((row, rowIndex) => {{
       const groupX = xCenter(rowIndex) - groupW / 2;
-      const tooltipRows = config.series.map(series => ({{label:series.label,color:chartColor(row.__markColors?.[series.field] || series.color),value:number(row[series.field]),series}}));
+      const tooltipRows = config.series.map(series => ({{label:series.label,color:chartColor(row.__markColors?.[series.field] || series.color),value:row[series.field],placeholder:barPlaceholder(rowIndex, series.field),series}}));
       const highlight = node('rect', {{
         x:margin.left + slot * rowIndex,
         y:margin.top,
@@ -926,10 +984,21 @@ function render() {{
       highlight.style.pointerEvents = 'none';
       svg.insertBefore(highlight, svg.firstChild);
       config.series.forEach((series, seriesIndex) => {{
-        const value = number(row[series.field]);
+        const placeholder = barPlaceholder(rowIndex, series.field);
+        if (!placeholder && !finiteValue(row[series.field])) return;
+        const value = placeholder ? Number(row[placeholder.referenceSeries]) : Number(row[series.field]);
+        let fill = chartColor(row.__markColors?.[series.field] || series.color);
+        if (placeholder) {{
+          const patternId = `bar-hatch-${{rowIndex}}-${{seriesIndex}}`;
+          const defs = node('defs');
+          const pattern = node('pattern', {{id:patternId,patternUnits:'userSpaceOnUse',width:8,height:8}});
+          pattern.appendChild(node('path', {{d:'M-2 2L2 -2M0 8L8 0M6 10L10 6',stroke:placeholder.style.color,'stroke-width':1.25,fill:'none'}}));
+          defs.appendChild(pattern); svg.appendChild(defs);
+          fill = `url(#${{patternId}})`;
+        }}
         const y0 = y(0);
         const y1 = y(value);
-        const rect = node('rect', {{x:groupX + seriesIndex * (barW + barGap),y:Math.min(y0,y1),width:barW,height:Math.max(1,Math.abs(y0-y1)),fill:chartColor(row.__markColors?.[series.field] || series.color),class:'bar'}});
+        const rect = node('rect', {{x:groupX + seriesIndex * (barW + barGap),y:Math.min(y0,y1),width:barW,height:Math.max(1,Math.abs(y0-y1)),fill,stroke:placeholder ? placeholder.style.color : 'none',rx:placeholder ? 3 : 0,class:placeholder ? 'bar bar-placeholder' : 'bar','data-row-index':rowIndex,'data-series':series.field,'aria-label':placeholder ? `${{series.label}}: ${{placeholder.label}}` : `${{series.label}}: ${{value}}`}});
         svg.appendChild(rect);
       }});
       const hit = node('rect', {{
@@ -956,6 +1025,12 @@ function render() {{
     item.className = 'legend-item';
     item.innerHTML = `<i class="legend-dot" style="background:${{chartColor(series.color)}}"></i>${{series.label}}`;
     legend.appendChild(item);
+  }});
+  [...new Set((config.barPlaceholders || []).map(mark => mark.label))].forEach(label => {{
+    const item = document.createElement('span'); item.className = 'legend-item';
+    const swatch = document.createElement('i'); swatch.className = 'legend-dot';
+    swatch.style.cssText = 'border:1px solid var(--chart-text-secondary);border-radius:2px;background:repeating-linear-gradient(135deg,transparent 0 3px,var(--chart-text-secondary) 3px 4px)';
+    item.append(swatch, document.createTextNode(label)); legend.appendChild(item);
   }});
 }}
 new ResizeObserver(() => {{ render(); postChartHeight(); }}).observe(svg);
