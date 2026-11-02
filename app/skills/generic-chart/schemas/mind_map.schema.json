@@ -2,19 +2,84 @@
   "chartType": "mind-map",
   "script": "mind_map.py",
   "purpose": "Render a structured concept, summary, or framework as a mind map.",
-  "rawDataContract": {"shape": "object|string|array<object>", "notes": "The model converts source notes or rows into concise Markdown hierarchy."},
+  "rawDataContract": {
+    "shape": "object|string|array<object>",
+    "notes": "Accept authored Markdown, a local UTF-8 Markdown file, or a local JSON file with explicit row-field/grouping or tree mapping. No model transcription is needed for a full structured dataset."
+  },
   "semanticChannels": [
-    {"channel": "root", "payloadField": "data.content h1", "required": true, "acceptedTypes": ["string"], "semantics": "central topic"},
-    {"channel": "branch", "payloadField": "data.content h2", "required": true, "acceptedTypes": ["string"], "semantics": "major branches"},
-    {"channel": "detail", "payloadField": "data.content list items", "required": false, "acceptedTypes": ["string"], "semantics": "supporting facts or subpoints"}
+    {
+      "channel": "root",
+      "payloadField": "data.content h1",
+      "required": true,
+      "acceptedTypes": [
+        "string"
+      ],
+      "semantics": "central topic"
+    },
+    {
+      "channel": "branch",
+      "payloadField": "data.content h2",
+      "required": true,
+      "acceptedTypes": [
+        "string"
+      ],
+      "semantics": "major branches"
+    },
+    {
+      "channel": "detail",
+      "payloadField": "data.content list items",
+      "required": false,
+      "acceptedTypes": [
+        "string"
+      ],
+      "semantics": "supporting facts or subpoints"
+    }
   ],
-  "payloadShape": {"title": "string", "data": {"content": "markdown string"}, "theme": "light|dark"},
+  "payloadShape": {
+    "title": "string",
+    "data": {
+      "content": "markdown string"
+    },
+    "theme": "light|dark",
+    "dataSource": {
+      "path": "local JSON path, relative to invocation cwd or absolute",
+      "recordsPath": [
+        "events"
+      ],
+      "groupBy": [
+        {
+          "field": "eventType",
+          "labels": {
+            "earning": "财报",
+            "economic_indicator": "经济数据"
+          }
+        }
+      ],
+      "labelFields": [
+        {
+          "field": "name"
+        },
+        {
+          "field": "symbol",
+          "label": "代码"
+        }
+      ]
+    }
+  },
   "modelInstructions": [
-    "Generate concise Markdown with one h1 root and 4-6 h2 branches when the evidence supports it.",
+    "For an authored summary, generate a specific root and evidence-backed branches. For large structured data or a request for all records, use dataSource mappings or --content-file instead of transcribing every record or silently reducing the dataset.",
     "The h1 root title must be specific to the user's topic and evidence; do not use generic titles such as 思维导图, 今日市场热点, Mind Map, Summary, or Market Hotspots.",
     "Do not create branches or leaves for 数据来源, 来源, 日期, 参考, source, date, references, or methodology; citations/provenance are shown elsewhere.",
     "Omit low-value missing-data nodes such as 原文未披露, 未完整披露, 无法核实, unavailable, unknown, or not disclosed.",
     "Use first-level branches for decision-useful clusters such as conclusion, drivers, evidence, affected sectors/entities, risks/divergences, and next checkpoints.",
-    "Do not overload branches with long prose; split concrete facts into short parent and child nodes."
-  ]
+    "Do not overload branches with long prose; split concrete facts into short parent and child nodes.",
+    "The canvas has a top-right fullscreen button on desktop/mobile; native fullscreen retains drag/zoom/fit and exit. Prefer concise labels, but do not drop records in file-mapping mode."
+  ],
+  "fileInputs": {
+    "content-file": "--content-file outputs/data/map.md reads authored Markdown directly; mutually exclusive with dataSource/inline content",
+    "payload": "--payload reads local JSON configuration; data.content supports existing Markdown; dataSource reads raw structured JSON",
+    "rowMode": "recordsPath selects an array; groupBy is an optional array of field paths or {field,labels} objects. labelFields is required, with field path/string or {field,label,suffix}. Missing field paths fail rather than silently discard records. Null values display —. Every row is included, with no automatic summarization/truncation. title supplies the root.",
+    "treeMode": "dataSource.path plus treePath (array of keys, [] for root) reads a {name,children[]} tree directly. No labelFields needed.",
+    "provenance": "receipt.fileSource and saved payload._fileSource include path, SHA-256, mapping and recordCount. HTML embeds resolved content and does not fetch the source file at viewing time."
+  }
 }

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import re
@@ -22,6 +23,100 @@ def unwrap_chart_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return unwrapped
 
 
+def _field(record: Any, path: Any) -> Any:
+    keys = path if isinstance(path, list) else str(path).split('.')
+    value = record
+    for key in keys:
+        if not isinstance(value, dict) or key not in value:
+            raise ValueError(f"Mind-map source field not found: {path!r}")
+        value = value[key]
+    return value
+
+
+def _plain_label(value: Any) -> str:
+    text = '—' if value is None else str(value)
+    text = html.escape(' '.join(text.splitlines()), quote=False)
+    return re.sub(r'([\\`*_[\]{}()#+!|])', r'\\\1', text)
+
+
+def resolve_file_content(payload: dict[str, Any], base: Path, content_file: str | None = None) -> dict[str, Any]:
+    """Turn explicit local file mappings into Markdown without an LLM or network."""
+    source = payload.get('dataSource')
+    if source is None and not content_file:
+        return payload
+    if source is not None and content_file:
+        raise ValueError('Use dataSource or --content-file, not both')
+    if markdown_from_payload(payload):
+        raise ValueError('Use file content or inline Markdown, not both')
+    path_text = content_file if content_file else source.get('path') if isinstance(source, dict) else None
+    if not isinstance(path_text, str) or not path_text or '://' in path_text:
+        raise ValueError('Mind-map file source requires a local path')
+    path = Path(path_text).expanduser()
+    if not path.is_absolute(): path = base / path
+    path = path.resolve(); raw = path.read_bytes(); text = raw.decode('utf-8-sig')
+    count = None
+    if content_file:
+        markdown = text
+    else:
+        document = json.loads(text)
+        if 'treePath' in source:
+            tree = document
+            for key in source['treePath']: tree = tree[key]
+            lines = []; count = 0
+            def visit(node, depth=0):
+                nonlocal count
+                if not isinstance(node, dict) or not isinstance(node.get('name'), str) or not node['name'].strip():
+                    raise ValueError('Tree nodes require nonempty name strings and optional children arrays')
+                count += 1
+                lines.append(('# ' if depth == 0 else '  ' * (depth-1) + '- ') + _plain_label(node['name']))
+                children = node.get('children', [])
+                if not isinstance(children, list): raise ValueError('Tree children must be an array')
+                for child in children: visit(child, depth+1)
+            visit(tree)
+        else:
+            rows = document
+            for key in source.get('recordsPath', []): rows = rows[key]
+            if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+                raise ValueError('recordsPath must select an array of objects')
+            fields = source.get('labelFields')
+            if not isinstance(fields, list) or not fields:
+                raise ValueError('Row sources require explicit labelFields')
+            groups = source.get('groupBy', [])
+            if not isinstance(groups, list): raise ValueError('groupBy must be an array')
+            title = payload.get('title')
+            if not isinstance(title, str) or not title.strip(): raise ValueError('Row sources require a root title')
+            branches = {}; count = len(rows)
+            for row in rows:
+                branch = branches
+                for spec in groups:
+                    spec = {'field': spec} if isinstance(spec, str) else spec
+                    value = _field(row, spec['field'])
+                    label = (spec.get('labels') or {}).get(str(value), value)
+                    branch = branch.setdefault(str(label) if label is not None else '—', {})
+                parts = []
+                for spec in fields:
+                    spec = {'field': spec} if isinstance(spec, str) else spec
+                    if not isinstance(spec, dict) or 'field' not in spec: raise ValueError('labelFields require field mappings')
+                    value = _field(row, spec['field'])
+                    parts.append(str(spec.get('label') or '') + (': ' if spec.get('label') else '') + ('—' if value is None else str(value)) + (str(spec.get('suffix') or '') if value is not None else ''))
+                branch.setdefault(None, []).append(' · '.join(_plain_label(part) for part in parts))
+            lines = ['# ' + _plain_label(title)]
+            def emit(branch, depth=0):
+                for label, children in branch.items():
+                    if label is None:
+                        lines.extend('  ' * depth + '- ' + text for text in children)
+                    else:
+                        lines.append('  ' * depth + '- ' + _plain_label(label)); emit(children, depth+1)
+            emit(branches)
+        markdown = '\n'.join(lines)
+    if not markdown.strip(): raise ValueError('Mind-map source is empty')
+    result = dict(payload); result.pop('dataSource', None); result['data'] = {'content': markdown}
+    result['_fileSource'] = {'path': str(path), 'sha256': hashlib.sha256(raw).hexdigest(),
+                             'recordCount': count, 'kind': 'markdown-file' if content_file else 'json-file',
+                             'mapping': source}
+    return result
+
+
 def load_payload(args: argparse.Namespace) -> dict[str, Any]:
     if args.payload:
         payload = json.loads(Path(args.payload).expanduser().read_text(encoding="utf-8"))
@@ -34,6 +129,8 @@ def load_payload(args: argparse.Namespace) -> dict[str, Any]:
     payload = unwrap_chart_payload(payload)
     if args.data:
         payload["data"] = json.loads(args.data)
+    if args.title and payload.get('dataSource'): payload['title'] = args.title
+    payload = resolve_file_content(payload, Path.cwd(), getattr(args, 'content_file', None))
     if args.title and not (generic_mind_map_title(args.title) and payload_title_from_content(payload)):
         payload["title"] = args.title
     if not payload.get("title"):
@@ -113,7 +210,7 @@ def build_html(payload: dict[str, Any], theme: str | None = None) -> str:
         raise ValueError("mind_map.py requires markdown content in payload.data.content/markdown/text; content must be generated before rendering.")
     title = str(payload.get("title") or title_from_markdown(markdown) or "思维导图")
     safe_title = html.escape(title)
-    markdown_json = json.dumps(markdown, ensure_ascii=False)
+    markdown_json = json.dumps(markdown, ensure_ascii=False).replace("</", "<\\/")
     theme_name = normalize_theme(theme or theme_from_payload(payload))
     body_class = "theme-dark" if theme_name == "dark" else "theme-light"
     return f"""<!doctype html>
@@ -123,11 +220,11 @@ def build_html(payload: dict[str, Any], theme: str | None = None) -> str:
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>{safe_title}</title>
 <style>
-:root{{--mm-page-bg:transparent;--mm-bg:transparent;--mm-text:#111827;--mm-muted:#4b5563;--mm-border:rgba(17,24,39,.12);--mm-button-bg:rgba(255,255,255,.92);--mm-shadow:0 8px 22px rgba(17,24,39,.12);--mm-node-bg:transparent;--mm-link-opacity:.88}}
-body.theme-dark{{--mm-page-bg:transparent;--mm-bg:transparent;--mm-text:#eef4f8;--mm-muted:#9aa6b5;--mm-border:rgba(148,163,184,.22);--mm-button-bg:rgba(15,23,32,.9);--mm-shadow:0 10px 26px rgba(0,0,0,.28);--mm-node-bg:transparent;--mm-link-opacity:.72}}
+:root{{--mm-fullscreen-bg:#ffffff;--mm-page-bg:transparent;--mm-bg:transparent;--mm-text:#111827;--mm-muted:#4b5563;--mm-border:rgba(17,24,39,.12);--mm-button-bg:rgba(255,255,255,.92);--mm-shadow:0 8px 22px rgba(17,24,39,.12);--mm-node-bg:transparent;--mm-link-opacity:.88}}
+body.theme-dark{{--mm-fullscreen-bg:#101010;--mm-page-bg:transparent;--mm-bg:transparent;--mm-text:#eef4f8;--mm-muted:#9aa6b5;--mm-border:rgba(148,163,184,.22);--mm-button-bg:rgba(15,23,32,.9);--mm-shadow:0 10px 26px rgba(0,0,0,.28);--mm-node-bg:transparent;--mm-link-opacity:.72}}
 html,body{{margin:0;padding:0;width:100%;height:auto;min-height:0;background:var(--mm-page-bg);color:var(--mm-text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;overflow:hidden}}
 #container{{position:relative;width:100%;height:min(52.5vw,520px);min-height:320px;background:transparent;border-radius:0;overflow:hidden}}
-#fullscreenBtn,#exitFullscreenBtn{{position:absolute;z-index:20;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:1px solid var(--mm-border);border-radius:6px;background:var(--mm-button-bg);color:var(--mm-text);box-shadow:var(--mm-shadow);cursor:pointer;-webkit-tap-highlight-color:transparent}}
+#fullscreenBtn,#exitFullscreenBtn{{position:absolute;z-index:20;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:1px solid var(--mm-border);border-radius:6px;background:var(--mm-button-bg);color:var(--mm-text);box-shadow:var(--mm-shadow);cursor:pointer;-webkit-tap-highlight-color:transparent}}
 #fullscreenBtn{{right:14px;top:18px}}
 #exitFullscreenBtn{{right:18px;top:max(14px,env(safe-area-inset-top));display:none}}
 #fullscreenBtn svg,#exitFullscreenBtn svg{{display:block;width:13px;height:13px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}}
@@ -143,10 +240,11 @@ svg.markmap .node circle{{fill:var(--mm-node-bg);stroke-width:2.5px}}
   #fullscreenBtn{{display:inline-flex;top:9px;right:12px}}
   svg.markmap text{{font-size:13px!important}}
 }}
-@media(min-width:721px){{
-  #fullscreenBtn{{display:none}}
-}}
-body.is-fullscreen{{width:100vw;height:100vh;background:transparent;overflow:hidden}}
+
+html:fullscreen,html:-webkit-full-screen,body.is-fullscreen{{width:100vw;height:100vh;background:var(--mm-fullscreen-bg);overflow:hidden}}
+body.is-fullscreen #mindMapZoom{{display:flex}}
+#fullscreenBtn:hover,#exitFullscreenBtn:hover{{border-color:var(--mm-muted)}}
+#fullscreenBtn:focus-visible,#exitFullscreenBtn:focus-visible{{outline:2px solid var(--mm-muted);outline-offset:2px}}
 body.is-fullscreen #container{{position:fixed;inset:0;width:100vw;height:100vh;min-height:0;border-radius:0;z-index:9999}}
 body.is-fullscreen #fullscreenBtn{{display:none}}
 body.is-fullscreen #exitFullscreenBtn{{display:inline-flex}}
@@ -158,7 +256,7 @@ body.is-fullscreen.is-forced-landscape #container{{width:100vh;height:100vw;left
 </style>
 </head>
 <body class="{body_class}">
-<div id="container" data-mind-map-container="true">
+<div id="container" data-mind-map-container="true" data-mind-map-version="3">
   <button id="fullscreenBtn" type="button" aria-label="全屏浏览" title="全屏浏览">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5"></path><path d="M16 3h5v5"></path><path d="M21 16v5h-5"></path><path d="M3 16v5h5"></path></svg>
   </button>
@@ -277,7 +375,7 @@ function fitMindMapBelowTitle(){{
   try {{ box = group.getBBox(); }} catch (e) {{ return; }}
   if (!box || box.width <= 0 || box.height <= 0) return;
   const padX = 0;
-  const padTop = 0;
+  const padTop = 48;
   const padBottom = 0;
   const usableW = Math.max(1, width - padX * 2);
   const usableH = Math.max(1, height - padTop - padBottom);
@@ -299,7 +397,7 @@ function fillMindMapFullscreen(){{
   try {{ box = group.getBBox(); }} catch (e) {{ return; }}
   if (!box || box.width <= 0 || box.height <= 0) return;
   const padX = 0;
-  const padTop = 0;
+  const padTop = 48;
   const padBottom = 0;
   const usableW = Math.max(1, width - padX * 2);
   const usableH = Math.max(1, height - padTop - padBottom);
@@ -351,6 +449,7 @@ function exitFullscreen(){{
   setTimeout(refitMindMap,320);
   setTimeout(refitMindMap,720);
 }}
+document.addEventListener("keydown",event=>{{if(event.key==="Escape"&&document.body.classList.contains("is-fullscreen"))exitFullscreen();}});
 fullscreenBtn.addEventListener("click", enterFullscreen);
 exitFullscreenBtn.addEventListener("click", exitFullscreen);
 document.addEventListener("fullscreenchange", () => {{
@@ -392,6 +491,7 @@ def main() -> int:
     parser.add_argument("--title")
     parser.add_argument("--payload")
     parser.add_argument("--data-json")
+    parser.add_argument("--content-file", help="UTF-8 Markdown file; or use payload.dataSource for mapped JSON rows/trees")
     parser.add_argument("--data")
     parser.add_argument("--output", required=True)
     parser.add_argument("--payload-output")
@@ -409,7 +509,7 @@ def main() -> int:
     output.write_text(html_text, encoding="utf-8")
     if args.payload_output:
         Path(args.payload_output).expanduser().resolve().write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({"ok": True, "output": str(output), "chartName": "mind_map"}, ensure_ascii=False))
+    print(json.dumps({"ok": True, "output": str(output), "chartName": "mind_map", "fileSource": payload.get("_fileSource")}, ensure_ascii=False))
     return 0
 
 

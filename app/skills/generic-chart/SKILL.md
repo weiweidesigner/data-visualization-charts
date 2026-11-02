@@ -149,3 +149,7 @@ In the Mentora host, `skill_runner.py execute` also accepts a payload with `data
 ## Missing-value grouped bars
 
 For user-requested hatched placeholders, `grouped_bar.py` natively accepts `barPlaceholders` (read its schema): exact target series/category, same-row `referenceSeries`, localized status label and optional hatch color. Preserve missing target data as null; never copy the estimate into it. The hatch is visual geometry only, and tooltip/legend expose the missing status. Missing reference or existing target is rejected. Use the native renderer rather than custom HTML or StreamViz for this feature. Chart-markup calls the semantic mark `bar-placeholder` and compiles it to this array.
+
+## Mind maps from files
+
+`mind_map.py --content-file outputs/data/map.md` renders an authored UTF-8 Markdown file directly. For a large structured dataset, use a small `--payload` with `dataSource` instead: read the mind_map schema for recordsPath, groupBy and labelFields, or treePath for a `{name, children}` tree. The renderer deterministically includes every mapped row, escapes source labels and records source SHA-256/count; the model chooses mappings without transcribing the full dataset. This creates a source-backed map, not an automatic analytical summary. Use an existing transformation skill for computed/grouped metrics. Generated HTML embeds the resolved content and requires no source-file fetch when opened. The canvas supports top-right fullscreen on desktop and mobile.
