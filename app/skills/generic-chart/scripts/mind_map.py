@@ -376,7 +376,7 @@ function fitMindMapBelowTitle(){{
   if (!box || box.width <= 0 || box.height <= 0) return;
   const padX = 0;
   const padTop = 48;
-  const padBottom = 0;
+  const padBottom = 8;
   const usableW = Math.max(1, width - padX * 2);
   const usableH = Math.max(1, height - padTop - padBottom);
   const scale = Math.max(0.1, Math.min(usableW / box.width, usableH / box.height));
@@ -398,7 +398,7 @@ function fillMindMapFullscreen(){{
   if (!box || box.width <= 0 || box.height <= 0) return;
   const padX = 0;
   const padTop = 48;
-  const padBottom = 0;
+  const padBottom = 48;
   const usableW = Math.max(1, width - padX * 2);
   const usableH = Math.max(1, height - padTop - padBottom);
   const scale = Math.max(0.1, Math.min(usableW / box.width, usableH / box.height));
